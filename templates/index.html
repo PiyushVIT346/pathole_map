@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Pothole Detection + Live Location Tracker</title>
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
+
+        .container {
+            display: flex;
+            justify-content: space-around;
+            align-items: flex-start;
+            margin: 20px;
+        }
+
+        #video-container {
+            flex: 1;
+            text-align: center;
+        }
+
+        #video-stream {
+            width: 100%;
+            max-width: 640px;
+            border: 2px solid #333;
+        }
+
+        #map {
+            flex: 1;
+            height: 600px;
+            border: 2px solid #333;
+        }
+
+        #status {
+            margin-top: 10px;
+            font-size: 18px;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <!-- Video Feed -->
+        <div id="video-container">
+            <h2>Pothole Detection Video</h2>
+            <img id="video-stream" src="{{ url_for('video_feed') }}" />
+            <div id="status">Potholes Detected: 0</div>
+        </div>
+
+        <!-- Leaflet Map -->
+        <div id="map"></div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+    <script>
+        let map = L.map('map').setView([0, 0], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+        }).addTo(map);
+
+        let userMarker = L.marker([0, 0]).addTo(map);
+        let potholeMarkers = [];
+
+        let currentLat = 0;
+        let currentLon = 0;
+        let lastDetectionCount = 0;
+
+        function success(position) {
+            currentLat = position.coords.latitude;
+            currentLon = position.coords.longitude;
+
+            userMarker.setLatLng([currentLat, currentLon]);
+            map.setView([currentLat, currentLon], 16);
+        }
+
+        function error(err) {
+            console.warn(`ERROR(${err.code}): ${err.message}`);
+        }
+
+        if (navigator.geolocation) {
+            navigator.geolocation.watchPosition(success, error, {
+                enableHighAccuracy: true,
+                maximumAge: 30000,
+                timeout: 27000
+            });
+        } else {
+            alert("Geolocation is not supported by your browser.");
+        }
+
+        // Poll detection count every 2 seconds
+        setInterval(() => {
+            fetch('/detection_count')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('status').innerText = `Potholes Detected: ${data.detections}`;
+
+                    if (data.detections >= 5 && lastDetectionCount < 5) {
+                        // Place marker on map
+                        let marker = L.marker([currentLat, currentLon])
+                            .addTo(map)
+                            .bindPopup('Pothole detected here')
+                            .openPopup();
+
+                        potholeMarkers.push(marker);
+
+                        // Reset detection count in backend
+                        fetch('/reset_detection_count', { method: 'POST' })
+                            .then(response => response.json())
+                            .then(result => {
+                                console.log(result.status);
+                            });
+
+                        lastDetectionCount = 0;
+                    } else {
+                        lastDetectionCount = data.detections;
+                    }
+                });
+        }, 2000);
+    </script>
+</body>
+
+</html>
